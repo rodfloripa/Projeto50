@@ -76,7 +76,9 @@ A self-attention tradicional é definida por:
 
 </p>
 
+$$
 \mathrm{Attention}(Q,K,V)=\mathrm{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+$$
 
 <p align="justify">
 
@@ -84,7 +86,9 @@ O problema aparece porque a matriz:
 
 </p>
 
+$$
 QK^T
+$$
 
 <p align="justify">
 
@@ -92,7 +96,9 @@ possui dimensão:
 
 </p>
 
+$$
 n \times n
+$$
 
 <p align="justify">
 
@@ -100,7 +106,9 @@ Logo, o custo cresce quadraticamente:
 
 </p>
 
+$$
 O(n^2 d)
+$$
 
 <p align="justify">
 
@@ -168,7 +176,9 @@ Aqui o modelo cria explicitamente a matriz:
 
 </p>
 
+$$
 QK^T
+$$
 
 <p align="justify">
 
@@ -176,7 +186,9 @@ Se a sequência possuir 8192 tokens, então a attention terá:
 
 </p>
 
+$$
 8192 \times 8192
+$$
 
 <p align="justify">
 
@@ -381,7 +393,9 @@ Na self-attention tradicional, os scores são divididos por:
 
 </p>
 
+$$
 \sqrt{d_k}
+$$
 
 <p align="justify">
 
@@ -531,7 +545,9 @@ Em vez de criar:
 
 </p>
 
+$$
 QK^T
+$$
 
 <p align="justify">
 
@@ -564,7 +580,9 @@ Por isso usamos a técnica clássica:
 
 </p>
 
+$$
 \mathrm{softmax}(x)=\frac{e^{x-\max(x)}}{\sum e^{x-\max(x)}}
+$$
 
 <p align="justify">
 
@@ -854,7 +872,22 @@ Também é possível comparar com:
 
 </p>
 
+<p align="justify">
 
+Esse projeto demonstra conhecimento avançado em:
+
+* Transformers
+* otimização de GPU
+* estabilidade numérica
+* álgebra linear
+* PyTorch interno
+* engenharia de sistemas de IA
+
+Pouquíssimos projetos de portfólio abordam otimização real de attention.
+
+Isso diferencia muito o currículo porque mostra entendimento profundo da infraestrutura dos LLMs modernos.
+
+</p>
 
 ---
 
