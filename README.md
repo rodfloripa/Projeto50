@@ -872,22 +872,7 @@ Também é possível comparar com:
 
 </p>
 
-<p align="justify">
 
-Esse projeto demonstra conhecimento avançado em:
-
-* Transformers
-* otimização de GPU
-* estabilidade numérica
-* álgebra linear
-* PyTorch interno
-* engenharia de sistemas de IA
-
-Pouquíssimos projetos de portfólio abordam otimização real de attention.
-
-Isso diferencia muito o currículo porque mostra entendimento profundo da infraestrutura dos LLMs modernos.
-
-</p>
 
 ---
 
