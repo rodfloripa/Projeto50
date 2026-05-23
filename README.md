@@ -1,903 +1,357 @@
-<p align="justify">
 
 # Projeto50: Implementando Flash Attention do Zero em PyTorch
 
-</p>
-
-<p align="justify">
+<div align="justify">
 
 Este projeto tem como objetivo construir uma implementação educacional da <b>Flash Attention</b>, uma das otimizações mais importantes já criadas para Transformers modernos.
 
 A ideia principal não é apenas utilizar uma biblioteca pronta, mas entender profundamente:
 
-* por que a self-attention tradicional consome tanta memória
-* como a GPU sofre com movimentação excessiva de dados
-* como técnicas de <i>tiling</i> reduzem acesso à VRAM
-* por que FlashAttention revolucionou LLMs modernos
+<ul>
+<li>por que a self-attention tradicional consome tanta memória</li>
+<li>como a GPU sofre com movimentação excessiva de dados</li>
+<li>como técnicas de <i>tiling</i> reduzem acesso à VRAM</li>
+<li>como kernels otimizados aumentam eficiência computacional</li>
+<li>como Transformers modernos conseguem escalar para bilhões de parâmetros</li>
+</ul>
 
-O projeto demonstra na prática:
+A Flash Attention revolucionou a eficiência de modelos Transformer ao reduzir drasticamente o custo de memória durante o cálculo da atenção.
 
-* Self-Attention clássica
-* gargalo de memória
-* implementação em blocos
-* softmax estável incremental
-* comparação de desempenho
-* escalabilidade
+Em vez de materializar toda a matriz de atenção na memória, o algoritmo processa blocos menores de dados diretamente na GPU, reduzindo gargalos de largura de banda e melhorando velocidade de treinamento e inferência.
 
-Tudo isso usando apenas:
+Esse projeto possui alto valor educacional porque conecta diretamente:
 
-* Python
-* PyTorch
-* CUDA (opcional)
-* Matplotlib
+<ul>
+<li>Deep Learning</li>
+<li>Transformers</li>
+<li>CUDA Concepts</li>
+<li>Otimização de GPU</li>
+<li>Álgebra Linear</li>
+<li>PyTorch</li>
+<li>Sistemas de IA em larga escala</li>
+</ul>
 
-</p>
-
----
-
-<p align="justify">
-
-# Objetivos do Projeto
-
-</p>
-
-<p align="justify">
-
-Ao final do projeto, será possível:
-
-* entender o gargalo computacional da attention
-* implementar Flash Attention manualmente
-* visualizar o ganho de memória
-* comparar diferentes tamanhos de sequência
-* compreender como LLMs modernos são otimizados
-
-O projeto envolve conhecimento em:
-
-* Deep Learning
-* Transformers
-* CUDA awareness
-* otimização de memória
-* álgebra linear
-* engenharia de IA
-
-</p>
+</div>
 
 ---
 
-<p align="justify">
+# 1. O Problema da Self-Attention Tradicional
 
-# Conceito Matemático
+<div align="justify">
 
-</p>
+O mecanismo clássico de self-attention possui complexidade quadrática em relação ao tamanho da sequência.
 
-<p align="justify">
+A operação principal é:
 
-A self-attention tradicional é definida por:
+</div>
 
-</p>
+```math
+Attention(Q,K,V)=softmax\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+```
 
-$$
-\mathrm{Attention}(Q,K,V)=\mathrm{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
-$$
+<div align="justify">
 
-<p align="justify">
+O problema central ocorre porque a matriz:
 
-O problema aparece porque a matriz:
+</div>
 
-</p>
-
-$$
+```math
 QK^T
-$$
+```
 
-<p align="justify">
+<div align="justify">
 
 possui dimensão:
 
-</p>
+</div>
 
-$$
-n \times n
-$$
+```math
+N \times N
+```
 
-<p align="justify">
+<div align="justify">
 
-Logo, o custo cresce quadraticamente:
+onde:
 
-</p>
+<ul>
+<li>N representa o tamanho da sequência</li>
+</ul>
 
-$$
-O(n^2 d)
-$$
+Para sequências grandes, o consumo de memória cresce rapidamente.
 
-<p align="justify">
+Por exemplo:
 
-Quando o contexto cresce para milhares de tokens, o uso de memória explode.
+<ul>
+<li>1.000 tokens → 1 milhão de elementos</li>
+<li>10.000 tokens → 100 milhões de elementos</li>
+<li>100.000 tokens → inviável para GPUs comuns</li>
+</ul>
 
-Flash Attention resolve isso processando blocos menores sem materializar toda a matriz de attention na memória.
+Além disso, o problema não é apenas computacional.
 
-</p>
+Grande parte do gargalo ocorre devido à movimentação excessiva de dados entre:
+
+<ul>
+<li>VRAM</li>
+<li>cache</li>
+<li>registradores da GPU</li>
+</ul>
+
+</div>
 
 ---
 
-<p align="justify">
+# 2. A Ideia Central da Flash Attention
 
-# Implementação da Self-Attention Tradicional
+<div align="justify">
 
-</p>
+A Flash Attention resolve esse problema evitando armazenar toda a matriz de atenção simultaneamente.
 
-```python
-import torch
-import torch.nn.functional as F
-import math
+Em vez disso, o algoritmo divide os tensores em pequenos blocos chamados de:
 
-def standard_attention(Q, K, V):
+</div>
 
-    d_k = Q.size(-1)
-
-    scores = torch.matmul(
-        Q,
-        K.transpose(-2, -1)
-    )
-
-    scores = scores / math.sqrt(d_k)
-
-    attn = F.softmax(scores, dim=-1)
-
-    output = torch.matmul(attn, V)
-
-    return output
+```text
+tiles
 ```
 
----
+<div align="justify">
 
-<p align="justify">
-
-# Entendendo o Gargalo da Attention Tradicional
-
-</p>
-
-<p align="justify">
-
-O principal problema está nesta linha:
-
-</p>
-
-```python
-scores = torch.matmul(
-    Q,
-    K.transpose(-2, -1)
-)
-```
-
-<p align="justify">
-
-Aqui o modelo cria explicitamente a matriz:
-
-</p>
-
-$$
-QK^T
-$$
-
-<p align="justify">
-
-Se a sequência possuir 8192 tokens, então a attention terá:
-
-</p>
-
-$$
-8192 \times 8192
-$$
-
-<p align="justify">
-
-posições.
-
-Isso significa dezenas de milhões de elementos simultaneamente na VRAM.
-
-O problema não é apenas computacional.
-
-O verdadeiro gargalo é movimentação de memória:
-
-* leitura de VRAM
-* escrita de VRAM
-* cache misses
-* bandwidth limitado da GPU
-
-É exatamente isso que Flash Attention tenta resolver.
-
-</p>
-
----
-
-<p align="justify">
-
-# Ideia Central da Flash Attention
-
-</p>
-
-<p align="justify">
-
-A ideia principal é extremamente elegante:
-
-em vez de calcular toda a attention de uma vez, dividimos o problema em pequenos blocos.
-
-A GPU então:
-
-* carrega um pequeno bloco
-* computa parcialmente
-* atualiza o softmax incrementalmente
-* descarta intermediários
-
-Assim evitamos criar a matriz gigantesca de attention na memória.
-
-O algoritmo transforma um problema de memória em um problema de streaming computacional.
-
-</p>
-
----
-
-<p align="justify">
-
-# Implementação da Flash Attention
-
-</p>
-
-```python
-import torch
-import math
-
-def flash_attention(Q, K, V, block_size=256):
-
-    B, N, D = Q.shape
-
-    output = torch.zeros_like(Q)
-
-    scale = 1.0 / math.sqrt(D)
-
-    for i in range(0, N, block_size):
-
-        q_block = Q[:, i:i + block_size]
-
-        row_max = None
-        row_sum = None
-        out_block = None
-
-        for j in range(0, N, block_size):
-
-            k_block = K[:, j:j + block_size]
-            v_block = V[:, j:j + block_size]
-
-            scores = torch.matmul(
-                q_block,
-                k_block.transpose(-2, -1)
-            ) * scale
-
-            current_max = scores.max(
-                dim=-1,
-                keepdim=True
-            ).values
-
-            if row_max is None:
-
-                row_max = current_max
-
-                exp_scores = torch.exp(
-                    scores - row_max
-                )
-
-                row_sum = exp_scores.sum(
-                    dim=-1,
-                    keepdim=True
-                )
-
-                out_block = torch.matmul(
-                    exp_scores,
-                    v_block
-                )
-
-            else:
-
-                new_max = torch.maximum(
-                    row_max,
-                    current_max
-                )
-
-                old_scale = torch.exp(
-                    row_max - new_max
-                )
-
-                exp_scores = torch.exp(
-                    scores - new_max
-                )
-
-                row_sum = (
-                    old_scale * row_sum +
-                    exp_scores.sum(
-                        dim=-1,
-                        keepdim=True
-                    )
-                )
-
-                out_block = (
-                    old_scale * out_block +
-                    torch.matmul(
-                        exp_scores,
-                        v_block
-                    )
-                )
-
-                row_max = new_max
-
-        output[:, i:i + block_size] = (
-            out_block / row_sum
-        )
-
-    return output
-```
-
----
-
-<p align="justify">
-
-# Explicação Detalhada da Flash Attention
-
-</p>
-
-<p align="justify">
-
-A implementação começa extraindo:
-
-* batch size
-* tamanho da sequência
-* dimensionalidade dos embeddings
-
-</p>
-
-```python
-B, N, D = Q.shape
-```
-
-<p align="justify">
-
-Depois criamos o tensor final:
-
-</p>
-
-```python
-output = torch.zeros_like(Q)
-```
-
-<p align="justify">
-
-Esse tensor armazenará o resultado final da attention.
-
-</p>
-
----
-
-<p align="justify">
-
-# Fator de Escala
-
-</p>
-
-```python
-scale = 1.0 / math.sqrt(D)
-```
-
-<p align="justify">
-
-Na self-attention tradicional, os scores são divididos por:
-
-</p>
-
-$$
-\sqrt{d_k}
-$$
-
-<p align="justify">
-
-Isso evita explosão numérica no softmax.
-
-Sem essa normalização:
-
-* os valores cresceriam muito
-* o softmax saturaria
-* o treinamento ficaria instável
-
-</p>
-
----
-
-<p align="justify">
-
-# Processamento em Blocos
-
-</p>
-
-```python
-for i in range(0, N, block_size):
-```
-
-<p align="justify">
-
-Aqui começa o conceito mais importante da Flash Attention.
-
-Em vez de processar toda a sequência de uma vez, dividimos em pequenos blocos.
-
-Se:
-
-* N = 8192
-* block_size = 256
-
-então processamos apenas pequenos segmentos por vez.
+Cada bloco é processado individualmente dentro da GPU.
 
 Isso reduz drasticamente:
 
-* uso de memória
-* movimentação de dados
-* pressão na VRAM
+<ul>
+<li>uso de memória</li>
+<li>transferência de dados</li>
+<li>acessos à VRAM</li>
+</ul>
 
-</p>
+A principal ideia é:
+
+<ul>
+<li>carregar pequenos blocos</li>
+<li>computar atenção localmente</li>
+<li>descartar intermediários desnecessários</li>
+<li>manter apenas resultados essenciais</li>
+</ul>
+
+Essa estratégia aumenta enormemente eficiência de hardware.
+
+</div>
 
 ---
 
-<p align="justify">
+# 3. Estrutura do Projeto
 
-# Extração do Bloco de Query
+<div align="justify">
 
-</p>
+O projeto será dividido em múltiplas etapas educacionais:
+
+<ol>
+<li>Implementação da self-attention tradicional</li>
+<li>Medição de uso de memória</li>
+<li>Implementação de processamento em blocos</li>
+<li>Cálculo incremental do Softmax</li>
+<li>Comparação entre versões</li>
+<li>Visualização de performance</li>
+</ol>
+
+O objetivo não é competir com kernels CUDA altamente otimizados, mas sim entender profundamente os conceitos matemáticos e computacionais da Flash Attention.
+
+</div>
+
+---
+
+# 4. Implementando a Self-Attention Tradicional
 
 ```python
-q_block = Q[:, i:i + block_size]
+scores = torch.matmul(Q, K.transpose(-2, -1))
+scores = scores / math.sqrt(d_k)
+
+attention = torch.softmax(scores, dim=-1)
+
+output = torch.matmul(attention, V)
 ```
 
-<p align="justify">
+<div align="justify">
 
-Selecionamos apenas um pequeno bloco da matriz Q.
+Essa implementação é simples e elegante.
 
-Isso significa que a GPU trabalha apenas com uma fração da sequência em cada instante.
+Porém, ela materializa completamente a matriz de atenção na memória.
 
-Esse detalhe é fundamental porque GPUs modernas funcionam muito melhor quando os dados cabem em cache.
+Isso significa que o tensor:
 
-</p>
-
----
-
-<p align="justify">
-
-# Estatísticas Incrementais
-
-</p>
+</div>
 
 ```python
-row_max = None
-row_sum = None
-out_block = None
+scores
 ```
 
-<p align="justify">
+<div align="justify">
 
-Essas variáveis armazenam:
+precisa existir integralmente na VRAM.
 
-* máximo parcial do softmax
-* soma parcial exponencial
-* saída parcial acumulada
+Em sequências longas, isso rapidamente se torna inviável.
 
-Elas permitem calcular o softmax incrementalmente sem armazenar toda a matriz de attention.
-
-Esse é um dos conceitos matemáticos mais sofisticados da Flash Attention.
-
-</p>
+</div>
 
 ---
 
-<p align="justify">
-
-# Processamento dos Blocos de Key e Value
-
-</p>
+# 5. Processamento em Blocos (Tiling)
 
 ```python
-for j in range(0, N, block_size):
+for i in range(0, seq_len, block_size):
+
+    Q_block = Q[:, i:i+block_size]
+
+    for j in range(0, seq_len, block_size):
+
+        K_block = K[:, j:j+block_size]
+        V_block = V[:, j:j+block_size]
 ```
 
-<p align="justify">
+<div align="justify">
 
-Agora percorremos os blocos de:
+Aqui começamos a implementar a principal ideia da Flash Attention.
 
-* K
-* V
+A sequência é dividida em blocos menores.
 
-A attention passa a funcionar como um fluxo contínuo:
+Cada bloco é processado separadamente.
 
-* carrega bloco
-* computa
-* acumula
-* descarta
+Isso reduz drasticamente o tamanho dos tensores temporários utilizados durante o cálculo da atenção.
 
-Isso reduz enormemente o tráfego de memória.
+Em vez de computar:
 
-</p>
+</div>
+
+```math
+N \times N
+```
+
+<div align="justify">
+
+de uma vez, computamos pequenas regiões locais da matriz.
+
+</div>
 
 ---
 
-<p align="justify">
+# 6. Softmax Incremental
 
-# Computação Local da Attention
+<div align="justify">
 
-</p>
+Um dos desafios matemáticos da Flash Attention é calcular o Softmax sem armazenar toda a matriz de scores.
+
+Para resolver isso, utiliza-se uma versão incremental numericamente estável.
+
+O algoritmo mantém:
+
+<ul>
+<li>máximo parcial</li>
+<li>soma parcial</li>
+<li>normalização incremental</li>
+</ul>
+
+Isso permite computar atenção corretamente sem precisar materializar todos os elementos simultaneamente.
+
+Essa técnica é fundamental para eficiência de memória.
+
+</div>
+
+---
+
+# 7. Benefícios Computacionais
+
+<div align="justify">
+
+A Flash Attention trouxe melhorias extremamente importantes para modelos modernos.
+
+Entre os principais benefícios:
+
+<ul>
+<li>redução massiva de memória</li>
+<li>maior throughput</li>
+<li>melhor utilização da GPU</li>
+<li>treinamento de sequências longas</li>
+<li>inferência mais eficiente</li>
+</ul>
+
+Essas otimizações permitiram avanços em:
+
+<ul>
+<li>GPT</li>
+<li>LLaMA</li>
+<li>Gemini</li>
+<li>Claude</li>
+<li>Mistral</li>
+</ul>
+
+Hoje, praticamente todos os LLMs modernos utilizam variantes de Flash Attention.
+
+</div>
+
+---
+
+# 8. Visualizando Uso de Memória
 
 ```python
-scores = torch.matmul(
-    q_block,
-    k_block.transpose(-2, -1)
-) * scale
+torch.cuda.memory_allocated()
 ```
 
-<p align="justify">
+<div align="justify">
 
-Aqui realizamos a multiplicação matricial local entre os blocos.
+O projeto também compara consumo de memória entre:
 
-Em vez de criar:
+<ul>
+<li>self-attention tradicional</li>
+<li>Flash Attention simplificada</li>
+</ul>
 
-</p>
+Isso permite observar empiricamente como o processamento em blocos reduz utilização de VRAM.
 
-$$
-QK^T
-$$
+Além disso, gráficos podem ser utilizados para visualizar:
 
-<p align="justify">
+<ul>
+<li>tempo de execução</li>
+<li>uso de memória</li>
+<li>escalabilidade</li>
+</ul>
 
-completo, criamos apenas pequenos pedaços temporários.
-
-Esse detalhe reduz drasticamente a memória necessária.
-
-</p>
-
----
-
-<p align="justify">
-
-# Máximo Parcial do Softmax
-
-</p>
-
-```python
-current_max = scores.max(
-    dim=-1,
-    keepdim=True
-).values
-```
-
-<p align="justify">
-
-O softmax pode sofrer overflow numérico.
-
-Por isso usamos a técnica clássica:
-
-</p>
-
-$$
-\mathrm{softmax}(x)=\frac{e^{x-\max(x)}}{\sum e^{x-\max(x)}}
-$$
-
-<p align="justify">
-
-Subtrair o máximo mantém os expoentes numericamente estáveis.
-
-</p>
+</div>
 
 ---
 
-<p align="justify">
+# 9. Conclusão
 
-# Primeiro Bloco
+<div align="justify">
 
-</p>
+Este projeto demonstra de forma prática os princípios fundamentais da Flash Attention, uma das otimizações mais importantes já desenvolvidas para Transformers modernos.
 
-```python
-if row_max is None:
-```
+Ao implementar manualmente:
 
-<p align="justify">
+<ul>
+<li>self-attention clássica</li>
+<li>tiling</li>
+<li>processamento em blocos</li>
+<li>Softmax incremental</li>
+<li>redução de movimentação de memória</li>
+</ul>
 
-No primeiro bloco inicializamos as estatísticas do softmax.
+o projeto evidencia compreensão profunda sobre como LLMs modernos conseguem escalar eficientemente.
 
-Aqui começamos a acumular:
+Mais importante ainda, o projeto conecta teoria matemática, arquitetura de hardware e otimização computacional, demonstrando domínio avançado de:
 
-* soma exponencial
-* saída parcial
-* máximo da linha
+<ul>
+<li>Transformers</li>
+<li>PyTorch</li>
+<li>GPU Computing</li>
+<li>CUDA Concepts</li>
+<li>Álgebra Linear</li>
+<li>Deep Learning Systems</li>
+</ul>
 
-</p>
+Esse tipo de implementação possui enorme valor para portfólio técnico porque mostra não apenas uso de modelos prontos, mas entendimento real sobre os mecanismos que tornam possível o treinamento eficiente de modelos gigantescos de linguagem.
 
----
-
-<p align="justify">
-
-# Exponencial Estável
-
-</p>
-
-```python
-exp_scores = torch.exp(
-    scores - row_max
-)
-```
-
-<p align="justify">
-
-Esse trecho evita explosões numéricas.
-
-Sem isso:
-
-* valores grandes explodiriam
-* valores pequenos desapareceriam
-* o softmax perderia precisão
-
-</p>
-
----
-
-<p align="justify">
-
-# Soma Incremental
-
-</p>
-
-```python
-row_sum = exp_scores.sum(
-    dim=-1,
-    keepdim=True
-)
-```
-
-<p align="justify">
-
-Aqui acumulamos parcialmente o denominador do softmax.
-
-A Flash Attention nunca computa o softmax completo explicitamente.
-
-Ela mantém apenas estatísticas resumidas.
-
-</p>
-
----
-
-<p align="justify">
-
-# Acúmulo da Saída
-
-</p>
-
-```python
-out_block = torch.matmul(
-    exp_scores,
-    v_block
-)
-```
-
-<p align="justify">
-
-Esse trecho produz a saída parcial da attention.
-
-Cada bloco contribui parcialmente para o resultado final.
-
-</p>
-
----
-
-<p align="justify">
-
-# Atualização Incremental Estável
-
-</p>
-
-```python
-new_max = torch.maximum(
-    row_max,
-    current_max
-)
-```
-
-<p align="justify">
-
-Agora ocorre um detalhe extremamente sofisticado.
-
-Como cada bloco possui escalas diferentes, precisamos reajustar numericamente o softmax.
-
-Isso mantém estabilidade mesmo processando os dados em streaming.
-
-</p>
-
----
-
-<p align="justify">
-
-# Reescala dos Valores Antigos
-
-</p>
-
-```python
-old_scale = torch.exp(
-    row_max - new_max
-)
-```
-
-<p align="justify">
-
-Os valores antigos precisam ser reescalados para permanecer consistentes com o novo máximo global.
-
-Essa é uma das ideias centrais da Flash Attention.
-
-</p>
-
----
-
-<p align="justify">
-
-# Atualização da Soma Global
-
-</p>
-
-```python
-row_sum = (
-    old_scale * row_sum +
-    exp_scores.sum(
-        dim=-1,
-        keepdim=True
-    )
-)
-```
-
-<p align="justify">
-
-Aqui acumulamos corretamente todas as contribuições dos blocos anteriores.
-
-O algoritmo preserva exatamente o resultado matemático da self-attention tradicional.
-
-</p>
-
----
-
-<p align="justify">
-
-# Atualização da Saída Parcial
-
-</p>
-
-```python
-out_block = (
-    old_scale * out_block +
-    torch.matmul(
-        exp_scores,
-        v_block
-    )
-)
-```
-
-<p align="justify">
-
-Esse trecho acumula incrementalmente a saída da attention.
-
-Ao final de todos os blocos teremos exatamente o mesmo resultado da attention tradicional, porém usando muito menos memória.
-
-</p>
-
----
-
-<p align="justify">
-
-# Normalização Final
-
-</p>
-
-```python
-output[:, i:i + block_size] = (
-    out_block / row_sum
-)
-```
-
-<p align="justify">
-
-Aqui concluímos o softmax.
-
-A saída final é normalizada corretamente utilizando apenas estatísticas acumuladas.
-
-</p>
-
----
-
-<p align="justify">
-
-# Resultados Esperados
-
-</p>
-
-<p align="justify">
-
-Para sequências pequenas, Flash Attention pode parecer semelhante à attention tradicional.
-
-Mas conforme o contexto cresce:
-
-* attention tradicional explode em memória
-* Flash Attention escala muito melhor
-* a GPU trabalha de forma muito mais eficiente
-
-O ganho principal aparece em:
-
-* contexto longo
-* batch grande
-* treinamento de LLMs
-
-</p>
-
----
-
-<p align="justify">
-
-# Melhorias Futuras
-
-</p>
-
-<p align="justify">
-
-O projeto pode evoluir para:
-
-* CUDA custom kernel
-* Triton
-* causal masking
-* multi-head attention
-* KV cache
-* mixed precision
-* quantização
-* integração com Transformer completo
-
-Também é possível comparar com:
-
-* xFormers
-* FlashAttention v2
-* PyTorch scaled_dot_product_attention
-
-</p>
-
----
-
-<p align="justify">
-
-
-
-</p>
-
-
-
----
-
-<p align="justify">
-
-# Conclusão
-
-</p>
-
-<p align="justify">
-
-Flash Attention foi uma das maiores revoluções recentes em Transformers porque atacou o verdadeiro gargalo dos modelos modernos: movimentação de memória.
-
-Em vez de apenas reduzir FLOPs, a técnica reorganiza o fluxo computacional para aproveitar melhor cache e VRAM.
-
-Este projeto mostra exatamente como isso funciona na prática.
-
-Além de aprender Transformers, o desenvolvedor passa a compreender:
-
-* computação em GPU
-* arquitetura de memória
-* estabilidade numérica
-* otimização de kernels
-* engenharia de LLMs modernos
-
-Esse tipo de conhecimento é extremamente valorizado em pesquisa e indústria de IA.
-
-</p>
+</div>
+````
